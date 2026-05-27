@@ -1,0 +1,1 @@
+"""Message persistence service placeholders."""

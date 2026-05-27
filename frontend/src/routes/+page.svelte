@@ -1,0 +1,12 @@
+<script lang="ts">
+  import { goto } from '$app/navigation';
+  import { onMount } from 'svelte';
+
+  onMount(() => {
+    goto('/dashboard', { replaceState: true });
+  });
+</script>
+
+<section class="page">
+  <div class="card">Loading PacketDeck...</div>
+</section>
