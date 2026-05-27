@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onDestroy, onMount, tick } from 'svelte';
+  import { onMount } from 'svelte';
   import StatusPill from '$lib/components/StatusPill.svelte';
   import MetricChart from '$lib/components/MetricChart.svelte';
   import { apiDelete, apiGet, apiPatch, apiPost, apiPut } from '$lib/api/client';
@@ -25,13 +25,6 @@
   let adminCredentialMessage = $state('');
   let telemetryRefreshState = $state<'idle' | 'loading' | 'updated' | 'error'>('idle');
   let telemetryRefreshMessage = $state('');
-  let mapElement = $state<HTMLDivElement | null>(null);
-  let mapState = $state<'idle' | 'loading' | 'ready' | 'error'>('idle');
-  let mapError = $state('');
-  let map: any = null;
-  let markerLayer: any = null;
-  let leafletPromise: Promise<any> | null = null;
-  const nodesWithCoordinates = $derived(nodes.filter(hasCoordinates));
   const hasBatteryPercentageTelemetry = $derived(hasTelemetryMetric('battery_percentage'));
   const hasAltitudeTelemetry = $derived(hasTelemetryMetric('altitude'));
   const hasRssiTelemetry = $derived(hasTelemetryMetric('rssi'));
@@ -49,27 +42,12 @@
     { label: '30 days', value: '30d' }
   ];
 
-  onMount(async () => {
-    await tick();
-    await initializeMap();
-    await loadNodes();
-  });
-
-  onDestroy(() => {
-    if (map) {
-      map.remove();
-      map = null;
-      markerLayer = null;
-    }
-  });
+  onMount(loadNodes);
 
   async function loadNodes() {
     try {
       error = '';
       nodes = await apiGet<NodeSummary[]>('/nodes');
-      await tick();
-      await initializeMap();
-      updateMapMarkers();
     } catch (err) {
       error = err instanceof Error ? err.message : 'Nodes could not be loaded.';
     }
@@ -121,124 +99,6 @@
     if (hasMetricValue(node.battery_voltage_v)) return displayValue(node.battery_voltage_v, 'V');
     if (hasMetricValue(node.battery_percentage)) return displayValue(node.battery_percentage, '%');
     return 'Unavailable';
-  }
-
-  function numericValue(value: unknown) {
-    const parsed = typeof value === 'number' ? value : Number(value);
-    return Number.isFinite(parsed) ? parsed : null;
-  }
-
-  function nodeLatitude(node: NodeSummary) {
-    return numericValue(node.latitude ?? node.raw_info?.contact?.adv_lat);
-  }
-
-  function nodeLongitude(node: NodeSummary) {
-    return numericValue(node.longitude ?? node.raw_info?.contact?.adv_lon);
-  }
-
-  function hasCoordinates(node: NodeSummary) {
-    const latitude = nodeLatitude(node);
-    const longitude = nodeLongitude(node);
-    if (latitude === null || longitude === null) return false;
-    if (latitude === 0 && longitude === 0) return false;
-    return latitude >= -90 && latitude <= 90 && longitude >= -180 && longitude <= 180;
-  }
-
-  async function loadLeaflet() {
-    if (typeof window === 'undefined') return null;
-    const existing = (window as any).L;
-    if (existing) return existing;
-    if (!leafletPromise) {
-      leafletPromise = new Promise((resolve, reject) => {
-        const script = document.createElement('script');
-        script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
-        script.integrity = 'sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=';
-        script.crossOrigin = '';
-        script.onload = () => resolve((window as any).L);
-        script.onerror = () => reject(new Error('OpenStreetMap library could not be loaded.'));
-        document.head.appendChild(script);
-      });
-    }
-    return leafletPromise;
-  }
-
-  async function initializeMap() {
-    if (!mapElement || map) return;
-    mapState = 'loading';
-    mapError = '';
-    try {
-      const L = await loadLeaflet();
-      if (!L || !mapElement) return;
-      map = L.map(mapElement, {
-        boxZoom: true,
-        doubleClickZoom: true,
-        dragging: true,
-        keyboard: true,
-        scrollWheelZoom: true,
-        tap: true,
-        touchZoom: true,
-        zoomControl: true
-      }).setView([51.1657, 10.4515], 5);
-      const tileLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        crossOrigin: true,
-        detectRetina: true,
-        keepBuffer: 4,
-        maxZoom: 19,
-        subdomains: ['a', 'b', 'c'],
-        tileSize: 256,
-        updateWhenIdle: false,
-        updateWhenZooming: true,
-        attribution: '&copy; OpenStreetMap contributors'
-      });
-      tileLayer.on('tileerror', (event: any) => {
-        const tile = event?.tile as HTMLImageElement | undefined;
-        const coords = event?.coords;
-        if (!tile || !coords || tile.dataset.fallback === 'openstreetmap-de') return;
-        tile.dataset.fallback = 'openstreetmap-de';
-        tile.src = `https://tile.openstreetmap.de/${coords.z}/${coords.x}/${coords.y}.png`;
-      });
-      tileLayer.addTo(map);
-      markerLayer = L.layerGroup().addTo(map);
-      mapState = 'ready';
-      setTimeout(() => map?.invalidateSize(), 0);
-      setTimeout(() => map?.invalidateSize(), 250);
-    } catch (err) {
-      mapState = 'error';
-      mapError = err instanceof Error ? err.message : 'OpenStreetMap could not be loaded.';
-    }
-  }
-
-  function updateMapMarkers() {
-    if (!map || !markerLayer) return;
-    const L = (window as any).L;
-    markerLayer.clearLayers();
-    const bounds: [number, number][] = [];
-    for (const node of nodesWithCoordinates) {
-      const latitude = nodeLatitude(node);
-      const longitude = nodeLongitude(node);
-      if (latitude === null || longitude === null) continue;
-      bounds.push([latitude, longitude]);
-      L.marker([latitude, longitude])
-        .bindPopup(
-          `<strong>${escapeHtml(nodeName(node))}</strong><br>${escapeHtml(node.role ?? 'Unknown')} · ${escapeHtml(node.status)}<br>Last heard: ${escapeHtml(displayDate(node.last_heard_at))}`
-        )
-        .addTo(markerLayer);
-    }
-    if (bounds.length === 1) {
-      map.setView(bounds[0], 12);
-    } else if (bounds.length > 1) {
-      map.fitBounds(bounds, { padding: [32, 32], maxZoom: 13 });
-    }
-    setTimeout(() => map?.invalidateSize(), 0);
-  }
-
-  function escapeHtml(value: unknown) {
-    return String(value)
-      .replaceAll('&', '&amp;')
-      .replaceAll('<', '&lt;')
-      .replaceAll('>', '&gt;')
-      .replaceAll('"', '&quot;')
-      .replaceAll("'", '&#039;');
   }
 
   async function openStats(node: NodeSummary) {
@@ -307,7 +167,6 @@
         .map((item) => (item.id === updated.id ? updated : item))
         .sort(sortNodes);
       if (selectedNode?.id === updated.id) selectedNode = updated;
-      updateMapMarkers();
     } catch (err) {
       error = err instanceof Error ? err.message : 'Favorite state could not be saved.';
     } finally {
@@ -443,14 +302,6 @@
   }
 </script>
 
-<svelte:head>
-  <link
-    rel="stylesheet"
-    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-    integrity="sha256-p4NxAoJBhIINfQ7I2nLMg0w5IJiZVFq9N6P4h7eWwHk="
-    crossorigin=""
-  />
-</svelte:head>
 
 <section class="page">
   <div class="page-header">
@@ -514,26 +365,6 @@
       </tbody>
     </table>
   {/if}
-
-  <section class="map-card">
-    <header>
-      <div>
-        <h2>Map</h2>
-        <p class="muted">OpenStreetMap view of known nodes with usable coordinates.</p>
-      </div>
-      <span>{nodesWithCoordinates.length} mapped</span>
-    </header>
-    <div class="map-frame">
-      <div class="node-map" bind:this={mapElement}></div>
-      {#if mapState === 'loading'}
-        <div class="map-overlay">Loading OpenStreetMap...</div>
-      {:else if mapState === 'error'}
-        <div class="map-overlay error">{mapError}</div>
-      {:else if nodesWithCoordinates.length === 0}
-        <div class="map-overlay">No node coordinates are available yet.</div>
-      {/if}
-    </div>
-  </section>
 
   {#if selectedNode}
     <div
@@ -861,138 +692,6 @@
     background: rgba(20, 184, 166, 0.2);
   }
 
-  .map-card {
-    display: grid;
-    gap: 0.85rem;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    background:
-      linear-gradient(135deg, rgba(20, 184, 166, 0.08), transparent 34%),
-      linear-gradient(180deg, rgba(18, 28, 46, 0.95), rgba(12, 20, 34, 0.95));
-    padding: 1rem;
-    box-shadow: var(--shadow-soft);
-  }
-
-  .map-card header {
-    display: flex;
-    align-items: start;
-    justify-content: space-between;
-    gap: 1rem;
-  }
-
-  .map-card header p {
-    margin: 0.25rem 0 0;
-  }
-
-  .map-card header span {
-    border: 1px solid rgba(20, 184, 166, 0.28);
-    border-radius: 999px;
-    background: rgba(20, 184, 166, 0.1);
-    padding: 0.2rem 0.5rem;
-    color: var(--text-strong);
-    font-size: 0.74rem;
-    font-weight: 850;
-    white-space: nowrap;
-  }
-
-  .map-frame {
-    position: relative;
-    min-height: 26rem;
-    overflow: hidden;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    background: rgba(2, 6, 23, 0.34);
-    isolation: isolate;
-  }
-
-  .node-map {
-    position: absolute;
-    inset: 0;
-    z-index: 0;
-    min-height: 26rem;
-  }
-
-  .map-overlay {
-    pointer-events: none;
-    position: absolute;
-    inset: auto 1rem 1rem 1rem;
-    z-index: 2;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    background: rgba(8, 13, 24, 0.88);
-    padding: 0.75rem 0.9rem;
-    color: var(--muted);
-    font-size: 0.88rem;
-    font-weight: 750;
-    backdrop-filter: blur(10px);
-  }
-
-  :global(.leaflet-container) {
-    background: #0f172a;
-    color: #0f172a;
-    font-family: inherit;
-  }
-
-  :global(.leaflet-tile) {
-    border: 0 !important;
-    max-width: none !important;
-    max-height: none !important;
-  }
-
-  :global(.leaflet-pane),
-  :global(.leaflet-tile),
-  :global(.leaflet-marker-icon),
-  :global(.leaflet-marker-shadow),
-  :global(.leaflet-tile-container),
-  :global(.leaflet-pane > svg),
-  :global(.leaflet-pane > canvas),
-  :global(.leaflet-zoom-box),
-  :global(.leaflet-image-layer),
-  :global(.leaflet-layer) {
-    position: absolute;
-    left: 0;
-    top: 0;
-  }
-
-  :global(.leaflet-control-container .leaflet-top),
-  :global(.leaflet-control-container .leaflet-bottom) {
-    position: absolute;
-    z-index: 1000;
-    pointer-events: none;
-  }
-
-  :global(.leaflet-control) {
-    pointer-events: auto;
-  }
-
-  :global(.leaflet-popup-content-wrapper),
-  :global(.leaflet-popup-tip) {
-    background: #0f172a;
-    color: #e5edf7;
-    border: 1px solid rgba(148, 163, 184, 0.25);
-    box-shadow: 0 18px 40px rgba(0, 0, 0, 0.35);
-  }
-
-  :global(.leaflet-popup-content) {
-    margin: 0.65rem 0.75rem;
-    color: #cbd5e1;
-    line-height: 1.45;
-  }
-
-  :global(.leaflet-popup-content strong) {
-    color: #f8fafc;
-  }
-
-  :global(.leaflet-control-attribution) {
-    background: rgba(15, 23, 42, 0.78) !important;
-    color: #cbd5e1 !important;
-    font-size: 0.68rem;
-  }
-
-  :global(.leaflet-control-attribution a) {
-    color: #67e8f9 !important;
-  }
-
   .modal-backdrop {
     position: fixed;
     inset: 0;
@@ -1247,18 +946,6 @@
       grid-column: auto;
     }
 
-    .map-card header {
-      display: grid;
-    }
-
-    .map-card header span {
-      justify-self: start;
-    }
-
-    .map-frame,
-    .node-map {
-      min-height: 20rem;
-    }
 
     .credential-form {
       grid-template-columns: 1fr;
