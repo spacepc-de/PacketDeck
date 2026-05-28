@@ -1,4 +1,5 @@
 import asyncio
+import os
 import time
 
 from meshcore import MeshCore
@@ -6,7 +7,9 @@ from meshcore.events import EventType
 
 
 async def main():
-    client = await MeshCore.create_tcp("192.168.2.118", 5000, auto_reconnect=False)
+    host = os.getenv("MESHCORE_TCP_HOST", "127.0.0.1")
+    port = int(os.getenv("MESHCORE_TCP_PORT", "5000"))
+    client = await MeshCore.create_tcp(host, port, auto_reconnect=False)
     print("connected", flush=True)
 
     async def on_any(event):

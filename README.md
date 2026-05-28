@@ -98,7 +98,7 @@ For the current TCP runtime, set the MeshCore companion address in `.env` or dir
 
 ```env
 MESHCORE_CONNECTION_TYPE=tcp
-MESHCORE_TCP_HOST=192.168.2.118
+MESHCORE_TCP_HOST=127.0.0.1
 MESHCORE_TCP_PORT=5000
 ```
 
@@ -137,7 +137,7 @@ DATABASE_URL=postgresql+asyncpg://meshcore:meshcore@postgres:5432/meshcore
 MQTT_URL=mqtt://mqtt:1883
 MQTT_TOPIC_PREFIX=meshcore-webgui
 MESHCORE_CONNECTION_TYPE=tcp
-MESHCORE_TCP_HOST=192.168.2.118
+MESHCORE_TCP_HOST=127.0.0.1
 MESHCORE_TCP_PORT=5000
 MESHCORE_AUTO_RECONNECT=true
 MESHCORE_MESSAGE_MAX_CHARS=180
@@ -169,14 +169,14 @@ The checked-in `docker-compose.yml` currently defaults to:
 
 ```yaml
 MESHCORE_CONNECTION_TYPE: tcp
-MESHCORE_TCP_HOST: ${MESHCORE_TCP_HOST:-192.168.2.118}
+MESHCORE_TCP_HOST: ${MESHCORE_TCP_HOST:-127.0.0.1}
 MESHCORE_TCP_PORT: ${MESHCORE_TCP_PORT:-5000}
 ```
 
 Override the companion host without editing the file:
 
 ```sh
-MESHCORE_TCP_HOST=192.168.2.50 MESHCORE_TCP_PORT=5000 docker compose up -d --build
+MESHCORE_TCP_HOST=meshcore-companion.local MESHCORE_TCP_PORT=5000 docker compose up -d --build
 ```
 
 ## API
