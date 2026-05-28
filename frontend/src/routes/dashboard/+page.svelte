@@ -88,17 +88,6 @@
         { title: 'RSSI', metric: 'last_rssi', unit: 'dBm' },
         { title: 'SNR', metric: 'last_snr', unit: 'dB' }
       ]
-    },
-    {
-      id: 'radio-history',
-      title: 'Radio history',
-      size: 'wide',
-      type: 'chart',
-      charts: [
-        { title: 'Frequency', metric: 'frequency_mhz', unit: 'MHz' },
-        { title: 'TX power', metric: 'tx_power_dbm', unit: 'dBm' },
-        { title: 'Bandwidth', metric: 'bandwidth_khz', unit: 'kHz' }
-      ]
     }
   ];
 

@@ -18,6 +18,7 @@
   ];
 
   let deviceConnection = $state<ConnectionStatus | null>(null);
+  let menuOpen = $state(false);
   let connectionTimer: ReturnType<typeof setInterval> | undefined;
   let { children }: { children: Snippet } = $props();
 
@@ -38,6 +39,10 @@
       deviceConnection = null;
     }
   }
+
+  function closeMobileMenu() {
+    menuOpen = false;
+  }
 </script>
 
 <svelte:head>
@@ -45,14 +50,29 @@
 </svelte:head>
 
 <div class="shell">
-  <aside class="sidebar">
-    <a class="brand" href="/">
-      <span class="brand-mark">MC</span>
-      <span>PacketDeck</span>
-    </a>
-    <nav>
+  <aside class="sidebar" class:menu-open={menuOpen}>
+    <div class="sidebar-top">
+      <a class="brand" href="/" onclick={closeMobileMenu}>
+        <span class="brand-mark">MC</span>
+        <span>PacketDeck</span>
+      </a>
+      <button
+        class="menu-toggle"
+        type="button"
+        aria-label={menuOpen ? 'Close navigation' : 'Open navigation'}
+        aria-expanded={menuOpen}
+        aria-controls="primary-navigation"
+        title={menuOpen ? 'Close navigation' : 'Open navigation'}
+        onclick={() => (menuOpen = !menuOpen)}
+      >
+        <span></span>
+        <span></span>
+        <span></span>
+      </button>
+    </div>
+    <nav id="primary-navigation">
       {#each navItems as [label, href]}
-        <a href={href}>{label}</a>
+        <a href={href} onclick={closeMobileMenu}>{label}</a>
       {/each}
     </nav>
     <div class="sidebar-status">
@@ -164,6 +184,36 @@
     background: linear-gradient(135deg, var(--accent), var(--blue));
     color: #04111d;
     font-size: 0.85rem;
+  }
+
+  .sidebar-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+  }
+
+  .menu-toggle {
+    display: none;
+    width: 2.5rem;
+    min-width: 2.5rem;
+    height: 2.5rem;
+    min-height: 2.5rem;
+    align-items: center;
+    justify-content: center;
+    gap: 0.22rem;
+    border-color: var(--border-strong);
+    background: var(--surface-soft);
+    box-shadow: none;
+    padding: 0;
+  }
+
+  .menu-toggle span {
+    display: block;
+    width: 1.05rem;
+    height: 2px;
+    border-radius: 999px;
+    background: var(--text-strong);
   }
 
   nav {
@@ -334,13 +384,32 @@
       z-index: 10;
       height: auto;
       max-height: 100vh;
+      gap: 0;
       border-right: 0;
       border-bottom: 1px solid var(--border);
       overflow: auto;
+      padding: 0.9rem 1rem;
+    }
+
+    .menu-toggle {
+      display: inline-flex;
+      flex-direction: column;
     }
 
     nav {
+      display: none;
       grid-template-columns: repeat(2, minmax(0, 1fr));
+      margin-top: 0.9rem;
+    }
+
+    .sidebar.menu-open nav,
+    .sidebar.menu-open .sidebar-status {
+      display: grid;
+    }
+
+    .sidebar-status {
+      display: none;
+      margin-top: 0.9rem;
     }
 
     main {
