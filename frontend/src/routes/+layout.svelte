@@ -11,7 +11,6 @@
     ['Messages', '/messages'],
     ['Nodes', '/nodes'],
     ['Map', '/map'],
-    ['Telemetry', '/telemetry'],
     ['Device Settings', '/device'],
     ['Automations', '/automations'],
     ['MQTT', '/mqtt'],

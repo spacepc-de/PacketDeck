@@ -11,14 +11,51 @@ from app.db.session import get_db_session
 
 router = APIRouter(dependencies=[Depends(require_api_token)])
 
+GATEWAY_TELEMETRY_FIELDS = (
+    "id",
+    "device_id",
+    "recorded_at",
+    "bandwidth_khz",
+    "battery_percentage",
+    "battery_voltage_v",
+    "ch1_voltage_v",
+    "companion_prefix",
+    "frequency_mhz",
+    "last_message_delivery",
+    "latitude",
+    "longitude",
+    "node_count",
+    "node_status",
+    "request_rate_limiter_tokens",
+    "spreading_factor",
+    "tx_power_dbm",
+    "uptime_seconds",
+    "last_rssi",
+    "last_snr",
+    "source",
+)
+
+
+def _gateway_telemetry_payload(telemetry: GatewayTelemetry | dict | None):
+    if telemetry is None:
+        return None
+    if isinstance(telemetry, dict):
+        return {field: telemetry.get(field) for field in GATEWAY_TELEMETRY_FIELDS if field in telemetry}
+    return {field: getattr(telemetry, field) for field in GATEWAY_TELEMETRY_FIELDS}
+
+
+def _gateway_telemetry_select():
+    return select(*(getattr(GatewayTelemetry, field) for field in GATEWAY_TELEMETRY_FIELDS))
+
 
 @router.get("/gateway/latest")
 async def get_latest_gateway_telemetry(request: Request, session: AsyncSession = Depends(get_db_session)):
     live = request.app.state.meshcore_manager.latest_gateway_telemetry
     if live:
-        return live
-    result = await session.execute(select(GatewayTelemetry).order_by(GatewayTelemetry.recorded_at.desc()).limit(1))
-    return result.scalar_one_or_none()
+        return _gateway_telemetry_payload(live)
+    result = await session.execute(_gateway_telemetry_select().order_by(GatewayTelemetry.recorded_at.desc()).limit(1))
+    row = result.mappings().first()
+    return dict(row) if row else None
 
 
 @router.get("/gateway/history")
@@ -30,7 +67,7 @@ async def get_gateway_telemetry_history(
     metric: str | None = Query(default=None),
     session: AsyncSession = Depends(get_db_session),
 ):
-    query = select(GatewayTelemetry)
+    query = _gateway_telemetry_select()
     start = from_ or _range_start(range)
     if start:
         query = query.where(GatewayTelemetry.recorded_at >= start)
@@ -39,7 +76,7 @@ async def get_gateway_telemetry_history(
     if metric and hasattr(GatewayTelemetry, metric):
         query = query.where(getattr(GatewayTelemetry, metric).is_not(None))
     result = await session.execute(query.order_by(GatewayTelemetry.recorded_at.desc()).limit(limit))
-    return list(reversed(result.scalars().all()))
+    return [dict(row) for row in reversed(result.mappings().all())]
 
 
 @router.get("/nodes/{node_id}/latest")

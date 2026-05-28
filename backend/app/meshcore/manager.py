@@ -8,7 +8,7 @@ from sqlalchemy import String, select
 
 from app.core.config import Settings
 from app.core.event_bus import AppEvent, EventBus
-from app.db.models import GatewayTelemetry, Message, Node, NodeAdminCredential, NodeEvent, NodeTelemetry
+from app.db.models import GatewayTelemetry, Message, Node, NodeAdminCredential, NodeEvent, NodeTelemetry, SystemSetting
 from app.db.session import async_session
 from app.meshcore.client import build_transport
 from app.meshcore.models import ConnectionState, DeviceSetting, MessageSendRequest
@@ -45,6 +45,7 @@ class MeshCoreManager:
         self._manual_disconnect = False
         self._last_retention_run: datetime | None = None
         self._last_transport_event_at: datetime | None = None
+        self._last_connection_validation_at: datetime | None = None
         self._active_device_identifier: str | None = f"{settings.meshcore_tcp_host}:{settings.meshcore_tcp_port}"
 
     async def start(self) -> None:
@@ -124,9 +125,12 @@ class MeshCoreManager:
         await self._set_state("disconnected", last_disconnected_at=datetime.now(UTC))
         return self.state
 
-    async def get_state(self) -> ConnectionState:
-        if self.state.state == "connected":
-            await self._validate_connection()
+    async def get_state(self, validate: bool = False) -> ConnectionState:
+        if validate and self.state.state == "connected":
+            now = datetime.now(UTC)
+            if not self._last_connection_validation_at or (now - self._last_connection_validation_at).total_seconds() >= 15:
+                self._last_connection_validation_at = now
+                await self._validate_connection()
         return self.state
 
     async def send_message(self, request: MessageSendRequest) -> dict[str, str | None]:
@@ -204,20 +208,59 @@ class MeshCoreManager:
                 )
             )
 
-    async def get_settings(self) -> list[DeviceSetting]:
+    async def get_settings(self, refresh: bool = False) -> list[DeviceSetting]:
+        cached_settings = await self._get_cached_device_settings()
+        if not refresh and cached_settings:
+            return cached_settings
         if not self.transport or self.state.state != "connected":
+            if cached_settings:
+                return cached_settings
             return [
                 DeviceSetting(key="connection_required", label="Device connection", category="System", editable=False, available=False),
             ]
-        raw_settings = await self.transport.get_device_settings()
-        return [DeviceSetting(**setting) for setting in raw_settings]
+        try:
+            raw_settings = await self.transport.get_device_settings()
+        except (RuntimeError, TimeoutError):
+            if cached_settings:
+                return cached_settings
+            raise
+        settings = [DeviceSetting(**setting) for setting in raw_settings]
+        await self._cache_device_settings(settings)
+        return settings
 
     async def update_settings(self, values: dict[str, Any]) -> list[DeviceSetting]:
         if not self.transport or self.state.state != "connected":
             raise RuntimeError("MeshCore device is not connected")
         await self.transport.update_device_settings(values)
         await self.event_bus.publish(AppEvent(type="device.settings_updated", payload={"keys": list(values.keys())}))
-        return await self.get_settings()
+        return await self.get_settings(refresh=True)
+
+    async def _get_cached_device_settings(self) -> list[DeviceSetting]:
+        async with async_session() as session:
+            cache = await session.get(SystemSetting, "device_settings_cache")
+            payload = cache.value if cache else {}
+        settings = payload.get("settings") if isinstance(payload, dict) else None
+        if not isinstance(settings, list):
+            return []
+        try:
+            return [DeviceSetting(**setting) for setting in settings if isinstance(setting, dict)]
+        except Exception:
+            return []
+
+    async def _cache_device_settings(self, settings: list[DeviceSetting]) -> None:
+        payload = {
+            "cached_at": datetime.now(UTC).isoformat(),
+            "device_identifier": self._connected_device_identifier(),
+            "settings": [setting.model_dump(mode="json") for setting in settings],
+        }
+        async with async_session() as session:
+            cache = await session.get(SystemSetting, "device_settings_cache")
+            if cache is None:
+                cache = SystemSetting(key="device_settings_cache", value=payload)
+                session.add(cache)
+            else:
+                cache.value = payload
+            await session.commit()
 
     async def _node_destination(self, node_id: str) -> str:
         async with async_session() as session:

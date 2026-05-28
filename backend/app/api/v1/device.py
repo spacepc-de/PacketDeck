@@ -12,9 +12,9 @@ async def get_device_info(request: Request):
 
 
 @router.get("/settings")
-async def get_device_settings(request: Request):
+async def get_device_settings(request: Request, refresh: bool = False):
     try:
-        return await request.app.state.meshcore_manager.get_settings()
+        return await request.app.state.meshcore_manager.get_settings(refresh=refresh)
     except (RuntimeError, TimeoutError):
         return []
 

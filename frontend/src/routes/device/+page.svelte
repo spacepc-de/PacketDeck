@@ -9,6 +9,8 @@
   let error = $state('');
   let notice = $state('');
   let saving = $state(false);
+  let loading = $state(true);
+  let refreshing = $state(false);
   let showEditableOnly = $state(false);
   const visibleSettings = $derived(
     showEditableOnly ? settings.filter((setting) => setting.editable && setting.available) : settings
@@ -24,12 +26,23 @@
     await loadSettings();
   });
 
-  async function loadSettings() {
+  async function loadSettings(refresh = false) {
+    if (refresh) {
+      refreshing = true;
+    } else {
+      loading = true;
+    }
+    error = '';
+    notice = '';
     try {
-      settings = await apiGet<DeviceSetting[]>('/device/settings');
+      settings = await apiGet<DeviceSetting[]>(`/device/settings${refresh ? '?refresh=true' : ''}`);
       values = Object.fromEntries(settings.map((setting) => [setting.key, normalizeValue(setting.value)]));
+      if (refresh) notice = 'Settings refreshed from device.';
     } catch (err) {
       error = err instanceof Error ? err.message : 'Device settings could not be loaded.';
+    } finally {
+      loading = false;
+      refreshing = false;
     }
   }
 
@@ -88,14 +101,17 @@
         <input type="checkbox" bind:checked={showEditableOnly} />
         <span>Editable only</span>
       </label>
-      <button disabled={saving} onclick={saveSettings}>{saving ? 'Saving...' : 'Save Changes'}</button>
+      <button class="secondary" disabled={loading || refreshing} onclick={() => loadSettings(true)}>{refreshing ? 'Refreshing...' : 'Refresh from device'}</button>
+      <button disabled={saving || loading || refreshing} onclick={saveSettings}>{saving ? 'Saving...' : 'Save Changes'}</button>
     </div>
   </div>
 
   {#if error}
     <div class="card">{error}</div>
   {:else}
-    {#if visibleSettings.length === 0}
+    {#if loading}
+      <div class="card">Loading device settings...</div>
+    {:else if visibleSettings.length === 0}
       <div class="card">No editable settings are available.</div>
     {:else}
       {#each Object.entries(groups) as [category, items]}
