@@ -97,8 +97,21 @@ cp .env.example .env
 For the current TCP runtime, set the MeshCore companion address in `.env` or directly through Compose:
 
 ```env
+APP_PUBLIC_HOST=localhost
+FRONTEND_PORT=8080
+BACKEND_PORT=8000
 MESHCORE_CONNECTION_TYPE=tcp
 MESHCORE_TCP_HOST=127.0.0.1
+MESHCORE_TCP_PORT=5000
+```
+
+For a Raspberry Pi or other LAN host, set `APP_PUBLIC_HOST` to the address you open in the browser:
+
+```env
+APP_PUBLIC_HOST=192.168.2.49
+FRONTEND_PORT=8090
+BACKEND_PORT=8000
+MESHCORE_TCP_HOST=192.168.2.118
 MESHCORE_TCP_PORT=5000
 ```
 
@@ -108,11 +121,7 @@ Start the stack:
 docker compose up -d --build
 ```
 
-Run database migrations:
-
-```sh
-docker compose exec backend alembic upgrade head
-```
+Database migrations run automatically when the backend container starts. Set `RUN_DB_MIGRATIONS=false` only if you want to manage Alembic manually.
 
 Open PacketDeck:
 
@@ -126,7 +135,7 @@ Default service URLs:
 - Backend API: `http://localhost:8000/api/v1`
 - Backend health check: `http://localhost:8000/health`
 - PostgreSQL: `localhost:5432`
-- MQTT broker: `localhost:1883`
+- MQTT broker: internal Compose service `mqtt:1883`
 
 ## Configuration
 
@@ -136,12 +145,22 @@ The backend reads settings from environment variables. Important current variabl
 DATABASE_URL=postgresql+asyncpg://meshcore:meshcore@postgres:5432/meshcore
 MQTT_URL=mqtt://mqtt:1883
 MQTT_TOPIC_PREFIX=meshcore-webgui
+APP_PUBLIC_HOST=localhost
+FRONTEND_PORT=8080
+BACKEND_PORT=8000
+POSTGRES_PORT=5432
 MESHCORE_CONNECTION_TYPE=tcp
 MESHCORE_TCP_HOST=127.0.0.1
 MESHCORE_TCP_PORT=5000
 MESHCORE_AUTO_RECONNECT=true
 MESHCORE_MESSAGE_MAX_CHARS=180
-CORS_ORIGINS=http://localhost:8080,http://localhost:5173
+# Optional overrides; Compose derives these from APP_PUBLIC_HOST, FRONTEND_PORT, and BACKEND_PORT by default.
+# PUBLIC_API_BASE_URL=http://localhost:8000/api/v1
+# PUBLIC_WS_URL=ws://localhost:8000/api/v1/ws/events
+# CORS_ORIGINS=http://localhost:8080,http://localhost:5173
+RUN_DB_MIGRATIONS=true
+DB_MIGRATION_ATTEMPTS=30
+DB_MIGRATION_RETRY_SECONDS=2
 AUTH_ENABLED=false
 API_TOKEN=
 OPENAI_API_KEY=
@@ -152,25 +171,30 @@ Notes:
 
 - `MESHCORE_CONNECTION_TYPE` must currently be `tcp`.
 - `MESHCORE_TCP_HOST` and `MESHCORE_TCP_PORT` must point to a reachable MeshCore WiFi/TCP companion.
+- `APP_PUBLIC_HOST` must be the host/IP used in the browser. Compose derives frontend API, WebSocket, and CORS defaults from it.
+- Override `PUBLIC_API_BASE_URL`, `PUBLIC_WS_URL`, or `CORS_ORIGINS` only when the derived defaults do not match your deployment.
 - Keep `.env` and secrets out of Git.
-- If the frontend is opened through a LAN hostname or Raspberry Pi address, add that origin to `CORS_ORIGINS`.
 - `OPENAI_API_KEY` is optional and only needed for automation features that call the OpenAI-backed weather/service path.
 
 ## Docker Compose
 
 The default Compose stack builds:
 
-- `backend` on port `8000`.
-- `frontend` on port `8080`.
-- `postgres` on port `5432`.
-- `mqtt` on port `1883`.
+- `backend` on `${BACKEND_PORT:-8000}`.
+- `frontend` on `${FRONTEND_PORT:-8080}`.
+- `postgres` on `${POSTGRES_PORT:-5432}`.
+- `mqtt` as an internal service on `mqtt:1883`.
 
 The checked-in `docker-compose.yml` currently defaults to:
 
 ```yaml
+APP_PUBLIC_HOST: localhost
+FRONTEND_PORT: 8080
+BACKEND_PORT: 8000
 MESHCORE_CONNECTION_TYPE: tcp
 MESHCORE_TCP_HOST: ${MESHCORE_TCP_HOST:-127.0.0.1}
 MESHCORE_TCP_PORT: ${MESHCORE_TCP_PORT:-5000}
+RUN_DB_MIGRATIONS: true
 ```
 
 Override the companion host without editing the file:
@@ -178,6 +202,14 @@ Override the companion host without editing the file:
 ```sh
 MESHCORE_TCP_HOST=meshcore-companion.local MESHCORE_TCP_PORT=5000 docker compose up -d --build
 ```
+
+If another service already uses port `8080`, pick a free frontend port:
+
+```env
+FRONTEND_PORT=8090
+```
+
+PacketDeck does not publish its bundled Mosquitto port by default, which avoids conflicts with existing Pi services such as Mosquitto or Zigbee2MQTT. Backend services still reach it through the internal Compose DNS name `mqtt:1883`.
 
 ## API
 

@@ -2,43 +2,52 @@ services:
   backend:
     build: ./backend
     environment:
-      DATABASE_URL: postgresql+asyncpg://meshcore:meshcore@postgres:5432/meshcore
-      MQTT_URL: mqtt://mqtt:1883
-      MESHCORE_CONNECTION_TYPE: tcp
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://meshcore:meshcore@postgres:5432/meshcore}
+      MQTT_URL: ${MQTT_URL:-mqtt://mqtt:1883}
+      MQTT_TOPIC_PREFIX: ${MQTT_TOPIC_PREFIX:-meshcore-webgui}
+      MESHCORE_CONNECTION_TYPE: ${MESHCORE_CONNECTION_TYPE:-tcp}
       MESHCORE_TCP_HOST: ${MESHCORE_TCP_HOST:-127.0.0.1}
       MESHCORE_TCP_PORT: ${MESHCORE_TCP_PORT:-5000}
-      MESHCORE_AUTO_RECONNECT: "true"
-      CORS_ORIGINS: http://localhost:8080,http://localhost:5173
+      MESHCORE_AUTO_RECONNECT: ${MESHCORE_AUTO_RECONNECT:-true}
+      MESHCORE_MESSAGE_MAX_CHARS: ${MESHCORE_MESSAGE_MAX_CHARS:-180}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://${APP_PUBLIC_HOST:-localhost}:${FRONTEND_PORT:-8080},http://localhost:${FRONTEND_PORT:-8080},http://localhost:5173}
+      AUTH_ENABLED: ${AUTH_ENABLED:-false}
+      API_TOKEN: ${API_TOKEN:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4.1-mini}
+      RUN_DB_MIGRATIONS: ${RUN_DB_MIGRATIONS:-true}
+      DB_MIGRATION_ATTEMPTS: ${DB_MIGRATION_ATTEMPTS:-30}
+      DB_MIGRATION_RETRY_SECONDS: ${DB_MIGRATION_RETRY_SECONDS:-2}
     ports:
-      - "8000:8000"
+      - "${BACKEND_PORT:-8000}:8000"
     depends_on:
       - postgres
 
   frontend:
     build: ./frontend
     environment:
-      PUBLIC_API_BASE_URL: http://localhost:8000/api/v1
-      PUBLIC_WS_URL: ws://localhost:8000/api/v1/ws/events
+      PUBLIC_API_BASE_URL: ${PUBLIC_API_BASE_URL:-http://${APP_PUBLIC_HOST:-localhost}:${BACKEND_PORT:-8000}/api/v1}
+      PUBLIC_WS_URL: ${PUBLIC_WS_URL:-ws://${APP_PUBLIC_HOST:-localhost}:${BACKEND_PORT:-8000}/api/v1/ws/events}
     ports:
-      - "8080:3000"
+      - "${FRONTEND_PORT:-8080}:3000"
     depends_on:
       - backend
 
   postgres:
     image: postgres:16
     environment:
-      POSTGRES_DB: meshcore
-      POSTGRES_USER: meshcore
-      POSTGRES_PASSWORD: meshcore
+      POSTGRES_DB: ${POSTGRES_DB:-meshcore}
+      POSTGRES_USER: ${POSTGRES_USER:-meshcore}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-meshcore}
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
   mqtt:
     image: eclipse-mosquitto:2
-    ports:
-      - "1883:1883"
+    expose:
+      - "1883"
     volumes:
       - ./infra/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
 
