@@ -1,27 +1,38 @@
 # PacketDeck
 
-PacketDeck is a self-hosted web client for MeshCore companion devices. It provides a modern SvelteKit frontend and a Python FastAPI backend for managing MeshCore gateways over serial USB or Bluetooth LE, storing telemetry in PostgreSQL, and exposing integration surfaces for MQTT, automations, and HTTP APIs.
+PacketDeck is a self-hosted web UI for MeshCore companion devices. The current implementation provides a SvelteKit frontend, a Python FastAPI backend, PostgreSQL persistence, WebSocket updates, MQTT integration endpoints, and automation foundations.
 
-PacketDeck is an independent web client compatible with MeshCore. It is designed for local, self-hosted deployments such as Raspberry Pi gateways, home labs, and Home Assistant adjacent installations.
+This repository is currently focused on MeshCore WiFi/TCP companion connections. Serial USB and BLE remain part of the project goal, but they are not the active runtime path in the current codebase.
 
-## Highlights
+## Current Status
 
-- MeshCore connection management over serial USB and BLE.
-- First-run setup wizard for hardware discovery, connection testing, and profile creation.
-- Connection profiles with default profile selection.
-- Live connection state, diagnostics, and reconnect-safe status handling.
-- Gateway telemetry storage with PostgreSQL and historical API endpoints.
-- Dashboard with connection, radio, battery, node, message, and activity views.
-- Node and contact tracking with raw MeshCore payload preservation.
-- Message API and frontend message views.
-- MQTT broker configuration and integration endpoints.
-- Automation rule foundation for message, telemetry, node, MQTT, webhook, and schedule driven workflows.
-- WebSocket event stream for real-time frontend updates.
-- Docker Compose based local deployment.
+Implemented project areas:
+
+- FastAPI backend with `/api/v1` REST routes and `/health`.
+- Long-lived MeshCore manager using the official `meshcore` Python package.
+- WiFi/TCP MeshCore transport via `MeshCore.create_tcp`.
+- PostgreSQL models and Alembic migrations.
+- Gateway telemetry normalization and history storage.
+- Node/contact state, telemetry, events, favorites, repeater/admin fields, and raw payload preservation.
+- Message send/history APIs and chat-style frontend page.
+- Device info/settings APIs with capability-style setting metadata.
+- MQTT broker configuration/status/test endpoints.
+- Automation rule and run APIs with service-layer tests.
+- WebSocket event stream for frontend updates.
+- SvelteKit dashboard pages for Dashboard, Messages, Nodes, Map, Device Settings, Automations, MQTT, and System.
+- Docker Compose stack for backend, frontend, PostgreSQL, and Mosquitto.
+
+Not currently implemented as active runtime features:
+
+- Serial USB transport.
+- BLE transport.
+- Connection profile CRUD.
+- First-run setup wizard.
+- Authentication UI.
 
 ## Stack
 
-### Backend
+Backend:
 
 - Python 3.12+
 - FastAPI
@@ -31,10 +42,9 @@ PacketDeck is an independent web client compatible with MeshCore. It is designed
 - PostgreSQL
 - Pydantic v2
 - `meshcore`
-- `bleak`
 - `aiomqtt`
 
-### Frontend
+Frontend:
 
 - SvelteKit
 - Svelte 5
@@ -42,33 +52,41 @@ PacketDeck is an independent web client compatible with MeshCore. It is designed
 - Vite
 - Node adapter
 
-### Infrastructure
+Infrastructure:
 
 - Docker Compose
 - PostgreSQL 16
-- Optional local Mosquitto or external MQTT broker
+- Eclipse Mosquitto 2
 
 ## Repository Layout
 
 ```text
 .
-├── backend/              FastAPI backend, MeshCore manager, transports, API routes
-├── frontend/             SvelteKit frontend
-├── infra/mosquitto/      Local Mosquitto config
-├── docker-compose.yml    Default local Docker Compose stack
-├── .env.example          Environment template
-├── LICENSE
-└── README.md
+├── AGENTS.md
+├── README.md
+├── docker-compose.yml
+├── .env.example
+├── backend/
+│   ├── app/
+│   │   ├── api/v1/          REST and WebSocket routes
+│   │   ├── core/            config, logging, event bus, security
+│   │   ├── db/              SQLAlchemy models and session setup
+│   │   ├── meshcore/        manager, transport abstraction, TCP transport
+│   │   ├── services/        telemetry, nodes, messages, automations, MQTT
+│   │   └── tests/
+│   ├── alembic/
+│   ├── pyproject.toml
+│   └── Dockerfile
+├── frontend/
+│   ├── src/lib/
+│   ├── src/routes/
+│   ├── package.json
+│   └── Dockerfile
+└── infra/
+    └── mosquitto/
 ```
 
 ## Quick Start
-
-Clone the repository:
-
-```sh
-git clone https://github.com/spacepc-de/PacketDeck.git
-cd PacketDeck
-```
 
 Create an environment file:
 
@@ -76,7 +94,15 @@ Create an environment file:
 cp .env.example .env
 ```
 
-Start the default stack:
+For the current TCP runtime, set the MeshCore companion address in `.env` or directly through Compose:
+
+```env
+MESHCORE_CONNECTION_TYPE=tcp
+MESHCORE_TCP_HOST=192.168.2.118
+MESHCORE_TCP_PORT=5000
+```
+
+Start the stack:
 
 ```sh
 docker compose up -d --build
@@ -100,106 +126,58 @@ Default service URLs:
 - Backend API: `http://localhost:8000/api/v1`
 - Backend health check: `http://localhost:8000/health`
 - PostgreSQL: `localhost:5432`
-
-On a fresh database without connection profiles, opening `/` routes to the Setup Wizard. After a default connection profile exists, `/` routes to the Dashboard.
-
-## First-Run Setup Wizard
-
-The Setup Wizard is the recommended way to initialize a new PacketDeck installation.
-
-It guides you through:
-
-1. Selecting serial USB or BLE.
-2. Scanning for available devices.
-3. Testing the MeshCore connection.
-4. Saving a reusable default connection profile.
-5. Optionally connecting immediately after saving.
-
-After initial setup, the wizard is available from the System page.
-
-## Serial USB Setup
-
-For real hardware on Linux, prefer stable `/dev/serial/by-id/...` paths instead of volatile `/dev/ttyACM0` or `/dev/ttyUSB0` names.
-
-List available serial devices on the host:
-
-```sh
-ls -l /dev/serial/by-id/
-```
-
-Use the `linux-serial` Compose profile when you want Docker to map a specific host serial device into the backend container:
-
-```sh
-MESHCORE_HOST_SERIAL_PORT=/dev/serial/by-id/YOUR_DEVICE_ID \
-docker compose --profile linux-serial up -d --build
-```
-
-The default `backend` service is intended for general development. The `backend-linux-serial` service maps the selected host serial device to `/dev/meshcore` inside the container and exposes the backend on port `8001`.
-
-For Raspberry Pi or host-network deployments, a small deployment-specific Compose file is often more practical because serial devices, DBus, and network access are host-specific.
-
-## BLE Notes
-
-BLE in containers is host dependent. Linux hosts usually need BlueZ, DBus access, host networking, and additional capabilities. The included `ble-linux` profile is a starting point, not a universal guarantee.
-
-Start the BLE profile:
-
-```sh
-docker compose --profile ble-linux up -d --build
-```
-
-If BLE scanning fails in Docker, verify:
-
-- Bluetooth is enabled on the host.
-- BlueZ is running.
-- DBus is available.
-- The container can access `/var/run/dbus`.
-- Host networking and required capabilities are available.
-
-Serial USB is usually the more predictable deployment mode for a fixed gateway.
+- MQTT broker: `localhost:1883`
 
 ## Configuration
 
-Copy `.env.example` to `.env` and adjust values for your environment.
-
-Important variables:
+The backend reads settings from environment variables. Important current variables:
 
 ```env
 DATABASE_URL=postgresql+asyncpg://meshcore:meshcore@postgres:5432/meshcore
-MESHCORE_CONNECTION_TYPE=serial
-MESHCORE_HOST_SERIAL_PORT=/dev/serial/by-id/REPLACE_WITH_DEVICE
-MESHCORE_SERIAL_PORT=/dev/meshcore
-MESHCORE_SERIAL_BAUD=115200
-MESHCORE_BLE_ADDRESS=
-MESHCORE_BLE_PIN=
+MQTT_URL=mqtt://mqtt:1883
+MQTT_TOPIC_PREFIX=meshcore-webgui
+MESHCORE_CONNECTION_TYPE=tcp
+MESHCORE_TCP_HOST=192.168.2.118
+MESHCORE_TCP_PORT=5000
 MESHCORE_AUTO_RECONNECT=true
+MESHCORE_MESSAGE_MAX_CHARS=180
 CORS_ORIGINS=http://localhost:8080,http://localhost:5173
 AUTH_ENABLED=false
 API_TOKEN=
 OPENAI_API_KEY=
+OPENAI_MODEL=gpt-4.1-mini
 ```
 
 Notes:
 
-- Keep secrets out of Git.
-- Do not commit `.env`.
-- If you use a Raspberry Pi or LAN hostname, add the frontend origin to `CORS_ORIGINS`.
-- `OPENAI_API_KEY` is optional and should only be set when features need it.
+- `MESHCORE_CONNECTION_TYPE` must currently be `tcp`.
+- `MESHCORE_TCP_HOST` and `MESHCORE_TCP_PORT` must point to a reachable MeshCore WiFi/TCP companion.
+- Keep `.env` and secrets out of Git.
+- If the frontend is opened through a LAN hostname or Raspberry Pi address, add that origin to `CORS_ORIGINS`.
+- `OPENAI_API_KEY` is optional and only needed for automation features that call the OpenAI-backed weather/service path.
 
-## MQTT
+## Docker Compose
 
-PacketDeck supports MQTT as an integration surface for systems such as Home Assistant, Node-RED, scripts, and automation engines.
+The default Compose stack builds:
 
-MQTT is not the primary frontend transport. The frontend uses REST and WebSocket. MQTT is intended for external integrations and command topics.
+- `backend` on port `8000`.
+- `frontend` on port `8080`.
+- `postgres` on port `5432`.
+- `mqtt` on port `1883`.
 
-Typical use cases:
+The checked-in `docker-compose.yml` currently defaults to:
 
-- Publish gateway status and telemetry.
-- Publish node and message events.
-- Subscribe to command topics for external control.
-- Use MQTT actions from automations.
+```yaml
+MESHCORE_CONNECTION_TYPE: tcp
+MESHCORE_TCP_HOST: ${MESHCORE_TCP_HOST:-192.168.2.118}
+MESHCORE_TCP_PORT: ${MESHCORE_TCP_PORT:-5000}
+```
 
-Configure brokers from the MQTT page in the frontend. Passwords and tokens should be treated as secrets and must not be logged or committed.
+Override the companion host without editing the file:
+
+```sh
+MESHCORE_TCP_HOST=192.168.2.50 MESHCORE_TCP_PORT=5000 docker compose up -d --build
+```
 
 ## API
 
@@ -209,7 +187,7 @@ All application API endpoints are under:
 /api/v1
 ```
 
-Core endpoint groups:
+Current route groups:
 
 - `/connection`
 - `/device`
@@ -232,9 +210,30 @@ Health check:
 GET /health
 ```
 
-## Development
+Useful connection calls:
 
-Install and run frontend locally:
+```sh
+curl http://localhost:8000/api/v1/connection/status
+curl -X POST http://localhost:8000/api/v1/connection/connect
+curl -X POST http://localhost:8000/api/v1/connection/disconnect
+```
+
+## Frontend
+
+The UI is English-only and currently includes:
+
+- Dashboard
+- Messages
+- Nodes
+- Map
+- Device Settings
+- Automations
+- MQTT
+- System
+
+The root route redirects to `/dashboard`.
+
+For local frontend development:
 
 ```sh
 cd frontend
@@ -242,41 +241,52 @@ npm install
 npm run dev
 ```
 
-Run the frontend production build:
-
-```sh
-cd frontend
-npm run build
-```
-
-Run backend locally:
-
-```sh
-cd backend
-python -m venv .venv
-. .venv/bin/activate
-pip install -e ".[dev]"
-alembic upgrade head
-uvicorn app.main:app --reload
-```
-
-Run backend tests:
-
-```sh
-cd backend
-pytest
-```
-
-Run frontend checks:
+Frontend checks:
 
 ```sh
 cd frontend
 npm run check
 ```
 
+Production build:
+
+```sh
+cd frontend
+npm run build
+```
+
+## Backend Development
+
+Create a local environment:
+
+```sh
+cd backend
+python -m venv .venv
+. .venv/bin/activate
+pip install -e ".[dev]"
+```
+
+Run migrations:
+
+```sh
+alembic upgrade head
+```
+
+Run the backend:
+
+```sh
+uvicorn app.main:app --reload
+```
+
+Run tests:
+
+```sh
+pytest
+```
+
 ## Database Migrations
 
-PacketDeck uses Alembic migrations. After creating a fresh database, run:
+PacketDeck uses Alembic migrations:
 
 ```sh
 docker compose exec backend alembic upgrade head
@@ -289,76 +299,65 @@ cd backend
 alembic upgrade head
 ```
 
-PostgreSQL is the production database. SQLite is not intended as the primary production database.
+PostgreSQL is the runtime database. SQLite is not accepted by the production settings validator and should only be used for isolated tests or fixtures.
 
-## Raspberry Pi Deployment Notes
+## MQTT
 
-A Raspberry Pi deployment usually needs host-specific Compose settings:
+MQTT is an integration surface for systems such as Home Assistant, Node-RED, scripts, and automation workflows. The frontend uses REST and WebSocket as its primary transports.
 
-- LAN frontend URL, for example `http://192.168.2.49:8090`.
-- Backend API URL visible to the browser, for example `http://192.168.2.49:8000/api/v1`.
-- Serial access via `/dev/serial/by-id/...`.
-- Optional `/dev` and DBus mounts for scanning and BLE access.
-- `CORS_ORIGINS` including the Pi frontend URL.
+Current MQTT-related features include:
 
-Example values:
+- Broker configuration API and UI.
+- Broker status API.
+- Test publish endpoint.
+- Automation service support for MQTT publish actions.
 
-```env
-CORS_ORIGINS=http://192.168.2.49:8090,http://localhost:8090,http://localhost:5173
-PUBLIC_API_BASE_URL=http://192.168.2.49:8000/api/v1
-PUBLIC_WS_URL=ws://192.168.2.49:8000/api/v1/ws/events
-```
+Broker passwords and tokens must be treated as secrets and must not be logged or committed.
 
-For first-run testing, disabling auto reconnect can be useful:
+## Serial USB and BLE Roadmap
 
-```env
-MESHCORE_AUTO_RECONNECT=false
-```
+The project contract still targets serial USB and BLE support, but the current code only builds a TCP transport. The existing `.env.example` contains older serial/BLE variables; treat those as future-facing placeholders until serial and BLE transports are added back to the runtime.
 
-That lets the Setup Wizard be the first connection flow instead of having the backend attempt a connection before a profile exists.
+Planned transport work:
+
+- Serial transport implementation and serial scan endpoint.
+- BLE transport implementation and BLE scan endpoint.
+- Docker deployment notes for stable `/dev/serial/by-id/...` mappings.
+- Linux BLE container profile with DBus/BlueZ documentation.
+- Connection profile management if reusable profiles are reintroduced.
 
 ## Troubleshooting
 
-### The dashboard stays on loading
+### Backend is reachable, but the device stays disconnected
+
+Check the configured TCP companion:
+
+```sh
+curl http://localhost:8000/api/v1/connection/status
+```
+
+Verify:
+
+- `MESHCORE_CONNECTION_TYPE=tcp`.
+- `MESHCORE_TCP_HOST` is reachable from the backend container.
+- `MESHCORE_TCP_PORT` matches the MeshCore companion TCP port.
+- The MeshCore companion is powered on and connected to the same network.
+
+### Dashboard stays on loading
 
 Check whether the browser can reach the backend:
 
 ```sh
-curl http://YOUR_HOST:8000/api/v1/connection/status
-curl http://YOUR_HOST:8000/api/v1/telemetry/gateway/latest
+curl http://localhost:8000/api/v1/connection/status
+curl http://localhost:8000/api/v1/telemetry/gateway/latest
 ```
 
-If these fail from your workstation, verify:
+If these fail, verify:
 
 - Backend container is running.
-- Port `8000` is reachable from your browser.
-- `PUBLIC_API_BASE_URL` points to the backend address your browser can access.
-- `CORS_ORIGINS` includes your frontend origin.
-
-### Serial device is not found
-
-Check host devices:
-
-```sh
-ls -l /dev/serial/by-id/
-ls -l /dev/ttyACM* /dev/ttyUSB*
-```
-
-Then verify the backend can see them:
-
-```sh
-curl http://YOUR_HOST:8000/api/v1/connection/scan/serial
-```
-
-Use stable `/dev/serial/by-id/...` paths for profiles whenever possible.
-
-### Connection test hangs or fails
-
-Make sure the selected serial device is the MeshCore companion and not another adapter such as a Zigbee dongle. Also check that no other process is using the serial port.
-
-### BLE scan fails
-
-BLE support in containers depends heavily on host Bluetooth setup. Prefer serial for fixed gateways unless BLE is required.
+- Port `8000` is reachable from the browser.
+- `PUBLIC_API_BASE_URL` points to a browser-reachable backend address.
+- `CORS_ORIGINS` includes the frontend origin.
 
 ### Database errors after a fresh start
 
@@ -367,6 +366,16 @@ Run migrations:
 ```sh
 docker compose exec backend alembic upgrade head
 ```
+
+### Frontend cannot connect to the WebSocket
+
+Check that `PUBLIC_WS_URL` points to the backend address the browser can reach:
+
+```env
+PUBLIC_WS_URL=ws://localhost:8000/api/v1/ws/events
+```
+
+For LAN deployments, use the LAN hostname or IP address instead of `localhost`.
 
 ## Security Notes
 
